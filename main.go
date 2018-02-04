@@ -1,7 +1,6 @@
 package main
 
 import (
-	"sync/atomic"
 	"time"
 	"fmt"
 	"sync"
@@ -10,32 +9,35 @@ import (
 // JustifiedLock is implementation of lock with beautiful bisqwit's video
 // https://www.youtube.com/watch?v=OrQ9swvm_VA
 type JustifiedLock struct {
-	locked atomic.Value
+	lock   sync.Mutex
 	reason string
 }
 
 // Lock locks with why
-func (lock *JustifiedLock) Lock(why string) {
+func (l *JustifiedLock) Lock(why string) {
 	reportTick := time.NewTicker(time.Second)
-	unlockTick := time.NewTicker(250*time.Microsecond)
-	for {
-		select {
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		for {
+			select {
 			case <- reportTick.C:
-				fmt.Printf("paused processing of %s because %s\n", why, lock.reason)
-			case <- unlockTick.C:
-				val := lock.locked.Load()
-				if locked, ok := val.(bool); !ok || !locked {
-					lock.locked.Store(true)
-					lock.reason = why
-					return
-				}
+				fmt.Printf("paused processing of %s because %s\n", why, l.reason)
+			case <- done:
+				return
+			}
 		}
-	}
+	}()
+
+	l.lock.Lock()
+	l.reason = why
+	done <- struct{}{}
 }
 
 // Unlocks performs unlock
-func (lock *JustifiedLock) Unlock() {
-	lock.locked.Store(false)
+func (l *JustifiedLock) Unlock() {
+	l.lock.Unlock()
 }
 
 
